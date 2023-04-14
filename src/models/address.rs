@@ -109,3 +109,15 @@ impl NetworkAddressData {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct AddAddress {
+    pub public_key: String,
+    pub private_key: String,
+    pub address: String,
+
+    pub account_type: Option<AccountType>,
+    pub custodians: Option<i32>,
+    pub confirmations: Option<i32>,
+    pub custodians_public_keys: Option<Vec<String>>,
+}

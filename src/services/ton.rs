@@ -95,6 +95,59 @@ impl TonService {
         Ok(address)
     }
 
+    pub async fn add_address(
+        &self,
+        service_id: &ServiceId,
+        input: AddAddress,
+    ) -> Result<AddressDb, Error> {
+        let (custodians, confirmations) =
+            validate_account_type(&input.account_type, input.custodians, input.confirmations)?;
+
+        let public_keys = input
+            .custodians_public_keys
+            .as_ref()
+            .map(|keys| keys.iter().map(|k| k.as_str()).collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let (custodians_public_keys, public_key_enc) = validate_public_keys(
+            &public_keys[..],
+            input.public_key.as_str(),
+            &input.account_type,
+        )?;
+
+        let id = Uuid::new_v4();
+        let key = self.key.as_slice().try_into()?;
+        let private_key_bytes = hex::decode(&input.private_key)?;
+        let private_key_enc = encrypt_private_key(&private_key_bytes, key, &id)?;
+
+        let address = repack_address(&input.address)?;
+        let base64url = nekoton_utils::pack_std_smc_addr(true, &address, true)?;
+
+        let address_data = self.ton_api_client.get_address_info(&address).await?;
+
+        let payload = CreateAddressInDb {
+            id,
+            service_id: *service_id,
+            workchain_id: address.workchain_id(),
+            hex: address.address().to_hex_string(),
+            base64url,
+            public_key: public_key_enc,
+            private_key: private_key_enc,
+            account_type: input.account_type.unwrap_or_default(),
+            custodians,
+            confirmations,
+            custodians_public_keys: custodians_public_keys
+                .map(|c| serde_json::to_value(c).unwrap_or_default()),
+        };
+
+        let address = self
+            .sqlx_client
+            .create_address_with_balance(payload, address_data.network_balance)
+            .await?;
+
+        Ok(address)
+    }
+
     pub async fn check_address(&self, address: Address) -> Result<bool, Error> {
         Ok(MsgAddressInt::from_str(&address.0).is_ok()
             || (unpack_std_smc_addr(&address.0, false).is_ok())
